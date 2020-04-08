@@ -23,7 +23,7 @@ class DoublePendulum(gym.Env):
         self.tau = tau  # seconds between state updates
         self.counter = 0  # used to stop the simulation
 
-        self.x_threshold = 2.4
+        self.x_threshold = 10
 
         self._reset()
         self.viewer = None
@@ -107,7 +107,7 @@ class DoublePendulum(gym.Env):
         return self.state, reward, done, {}
 
     def _reset(self):
-        self.state = np.array([0, np.pi, np.pi, 0, 0, 0])
+        self.state = np.array([0, np.pi/10, 0, 0, 0, 0])
         self.counter = 0
         return self.state
 
