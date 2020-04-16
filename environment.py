@@ -13,17 +13,17 @@ logger = logging.getLogger(__name__)
 class DoublePendulum(gym.Env):
 
     def __init__(self, display=None, max_iter=10000, tau=0.02):
-        self.g = 9.81  # gravity constant
-        self.m = 100.0  # mass of cart
-        self.m1 = 0.1  # mass of sphere 1
-        self.m2 = 0.1  # mass of sphere 2
+        self.g = 9.8  # gravity constant
+        self.m = 50  # mass of cart
+        self.m1 = 0.001  # mass of sphere 1
+        self.m2 = 0.001  # mass of sphere 2
         self.l1 = 1  # length of pole 1
         self.l2 = 1  # length of pole 2
 
         self.tau = tau  # seconds between state updates
         self.counter = 0  # used to stop the simulation
 
-        self.x_threshold = 10
+        self.x_threshold = 15
 
         self._reset()
         self.viewer = None
@@ -62,7 +62,7 @@ class DoublePendulum(gym.Env):
                            l1**2 * (m1 + m2),
                            l1 * l2 * m2 * np.cos(theta1 - theta2)],
                           [l2 * m2 * np.cos(theta2),
-                           1 * l2 * m2 * np.cos(theta1 - theta2),
+                           l1 * l2 * m2 * np.cos(theta1 - theta2),
                            l2**2 * m2]])
 
             G = np.array([l1 * (m1 + m2) * w1**2 * np.sin(theta1) +
@@ -79,6 +79,106 @@ class DoublePendulum(gym.Env):
             return state_dot
 
         return derivate_func
+
+    def get_feedback_matrices(self, theo_state, u):
+        """
+        Returns the function that gives the derivate of the state. This is
+        necessary to don't pass the parameters of the system as parameters
+        of the function, which must have a given signature for the solver.
+        """
+
+        m = self.m
+        m1 = self.m1
+        m2 = self.m2
+        l1 = self.l1
+        l2 = self.l2
+        g = self.g
+
+        theta1 = theo_state[1]
+        theta2 = theo_state[2]
+        w1 = theo_state[4]
+        w2 = theo_state[5]
+
+        M = np.array([[m + m1 + m2,
+                       l1 * (m1 + m2) * np.cos(theta1),
+                       m2 * l2 * np.cos(theta2)],
+                      [l1 * (m1 + m2) * np.cos(theta1),
+                       l1**2 * (m1 + m2),
+                       l1 * l2 * m2 * np.cos(theta1 - theta2)],
+                      [l2 * m2 * np.cos(theta2),
+                       l1 * l2 * m2 * np.cos(theta1 - theta2),
+                       l2**2 * m2]])
+
+        M_inv = np.linalg.inv(M)
+
+        dM_theta1 = np.array([[0,
+                               -l1 * (m1 + m2) * np.sin(theta1),
+                               0],
+                              [-l1 * (m1 + m2) * np.sin(theta1),
+                               0,
+                               -l1 * l2 * m2 * np.sin(theta1 - theta2)],
+                              [0,
+                               -l1 * l2 * m2 * np.sin(theta1 - theta2),
+                               0]])
+
+        dM_theta2 = np.array([[0,
+                               0,
+                               -m2 * l2 * np.sin(theta2)],
+                              [0,
+                               0,
+                               l1 * l2 * m2 * np.sin(theta1 - theta2)],
+                              [-m2 * l2 * np.sin(theta2),
+                               l1 * l2 * m2 * np.sin(theta1 - theta2),
+                               0]])
+
+        G = np.array([l1 * (m1 + m2) * w1**2 * np.sin(theta1) +
+                      m2 * l2 * w2**2 * np.sin(w2),
+                      -l1 * l2 * m2 * w2**2 * np.sin(theta1 - theta2) +
+                      g * (m1 + m2) * l1 * np.sin(theta1),
+                      l1 * l2 * m2 * w1**2 * np.sin(theta1 - theta2) +
+                      g * m2 * l2 * np.sin(theta2)])
+
+        dG_theta1 = np.array([l1 * (m1 + m2) * w1**2 * np.cos(theta1),
+                              -l1 * l2 * m2 * w2**2 * np.cos(theta1 - theta2) +
+                              g * (m1 + m2) * l1 * np.cos(theta1),
+                              l1 * l2 * m2 * w1**2 * np.cos(theta1 - theta2)])
+
+        dG_theta2 = np.array([0,
+                              l1 * l2 * m2 * w2**2 * np.cos(theta1 - theta2),
+                              -l1 * l2 * m2 * w1**2 * np.cos(theta1 - theta2) +
+                              g * m2 * l2 * np.cos(theta2)])
+
+        dG_w1 = np.array([2 * l1 * (m1 + m2) * w1 * np.sin(theta1),
+                          0,
+                          2 * l1 * l2 * m2 * w1 * np.sin(theta1 - theta2)])
+
+        dG_w2 = np.array([2 * m2 * l2 * w2 * np.sin(w2),
+                          -2 * l1 * l2 * m2 * w2 * np.sin(theta1 - theta2),
+                          0])
+
+        d_end_state_theta1 = -M_inv @ dM_theta1 @ M_inv @ (G + np.array([u, 0, 0])) + M_inv @ dG_theta1
+        d_end_state_theta2 = -M_inv @ dM_theta2 @ M_inv @ (G + np.array([u, 0, 0])) + M_inv @ dG_theta2
+        d_end_state_w1 = M_inv @ dG_w1
+        d_end_state_w2 = M_inv @ dG_w2
+
+        zeros = np.zeros(3)
+        d_state_y_end = np.vstack((zeros,
+                                   d_end_state_theta1,
+                                   d_end_state_theta2,
+                                   zeros,
+                                   d_end_state_w1,
+                                   d_end_state_w2)).T
+
+        d_state_y_begin = np.concatenate((np.zeros((3, 3)), np.eye(3)), axis=1)
+
+        d_state_y = np.concatenate((d_state_y_begin, d_state_y_end), axis=0)
+
+        d_state_u_end = M_inv @ np.array([1, 0, 0])
+        d_state_u = np.concatenate((np.array([0, 0, 0]), d_state_u_end), axis=0)
+
+        d_state_u = np.reshape(d_state_u, (6, 1))
+
+        return (d_state_y, d_state_u)
 
     def _step(self, action):
 
@@ -106,8 +206,21 @@ class DoublePendulum(gym.Env):
 
         return self.state, reward, done, {}
 
+    def _step_oc(self, new_state):
+        self.counter += 1
+        self.state = new_state
+        x, theta1, theta2 = new_state[0], new_state[1], new_state[2]
+
+        cost = normalize_angle(theta1) + normalize_angle(theta2)
+
+        reward = -cost
+        done = bool(self.counter > self.max_iter or
+                    np.abs(x) > self.x_threshold)
+
+        return self.state, reward, done, {}
+
     def _reset(self):
-        self.state = np.array([0, np.pi/10, 0, 0, 0, 0])
+        self.state = np.array([0, -np.pi, -np.pi, 0, 0, 0])
         self.counter = 0
         return self.state
 
@@ -126,8 +239,8 @@ class DoublePendulum(gym.Env):
 
         cart_y = 300
         pole_width = 2.0
-        pole1_length = scale * self.l1
-        pole2_length = scale * self.l2
+        pole1_length = scale * self.l1 * 2
+        pole2_length = scale * self.l2 * 2
         cart_width = 50.0
         cart_height = 30.0
         circle_radius = 15
