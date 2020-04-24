@@ -53,7 +53,7 @@ def compute_optimal_control(env, timespan, n_points, r_u=0.01, r_end=10, max_ite
           l1**2 * (m1 + m2),
           l1 * l2 * m2 * m.cos(theta1_g - theta2_g)],
          [l2 * m2 * m.cos(theta2_g),
-          1 * l2 * m2 * m.cos(theta1_g - theta2_g),
+          l1 * l2 * m2 * m.cos(theta1_g - theta2_g),
           l2**2 * m2]]
 
     G = [l1 * (m1 + m2) * w1_g**2 * m.sin(theta1_g) +
@@ -126,7 +126,7 @@ def simulation(env, y_u, use_feedback=True, only_display=False, Q_fb=np.eye(6), 
     tau = env.tau
 
     times = [tau * i for i in range(2 * n_points)]
-
+    norms = np.zeros(2 * n_points)
     # count = 0
     for t in range(2 * n_points):
 
@@ -137,19 +137,26 @@ def simulation(env, y_u, use_feedback=True, only_display=False, Q_fb=np.eye(6), 
             u = 0
             theo_state = np.zeros(6)
 
-        A, b = env.get_feedback_matrices(theo_state, u)
+        if use_feedback:
+            A, b = env.get_feedback_matrices(theo_state, u)
 
-        P = solve_continuous_are(A, b, Q_fb, r_fb)
-        feedback = b.T @ P / r_fb @ (theo_state - env.state) * int(use_feedback)
+            P = solve_continuous_are(A, b, Q_fb, r_fb)
+            feedback = b.T @ P / r_fb @ (theo_state - env.state)
+            norm = (b.T @ P / r_fb) @ (b.T @ P / r_fb).T
+        else:
+            feedback = 0
+            norm = 0
 
-        # if abs(feedback) > 500:
-        #     feedback = 500 * np.sign(feedback) * 0.1**count
-        #     count += 1
-        # else:
-        #     count = 0
-
-        # if abs(feedback) > 100:
+        # if abs(feedback) > 5000:
         #     feedback = 0
+        #     norm = 0
+
+        # if abs((b.T @ P / r_fb) @ (b.T @ P / r_fb).T) > 1e8:
+        #     feedback = 0
+        #     norm = 0
+        # else:
+        #     norm = (b.T @ P / r_fb) @ (b.T @ P / r_fb).T
+
         action = u + feedback
         obs, r, done, info = env._step(action)
 
@@ -161,8 +168,10 @@ def simulation(env, y_u, use_feedback=True, only_display=False, Q_fb=np.eye(6), 
         w2s[t] = obs[5]
         us[t] = action
         feedbacks[t] = feedback
+        norms[t] = norm
 
         # obs, r, done, info = env._step_oc(new_state)
+
         if done:
             break
 
@@ -202,12 +211,14 @@ def simulation(env, y_u, use_feedback=True, only_display=False, Q_fb=np.eye(6), 
         ax.plot(times, np.hstack((w1_g.value, np.zeros(n_points))), label='Theory')
         ax.plot(times, w1s, label='Observations')
         ax.set(xlabel='time', ylabel='w1(t)')
+        ax.set_ylim([-20, 20])
         ax.legend()
 
         ax = axs[1, 2]
         ax.plot(times, np.hstack((w2_g.value, np.zeros(n_points))), label='Theory')
         ax.plot(times, w2s, label='Observations')
         ax.set(xlabel='time', ylabel='w2(t)')
+        ax.set_ylim([-20, 20])
         ax.legend()
 
         ax = axs[2, 0]
@@ -215,10 +226,14 @@ def simulation(env, y_u, use_feedback=True, only_display=False, Q_fb=np.eye(6), 
         ax.set(xlabel='time', ylabel='feedback(t)')
 
         ax = axs[2, 1]
-        ax.plot(times, us, label='with feedback')
-        ax.plot(times, np.hstack((u_g.value, np.zeros(n_points))), label='Theory')
+        ax.plot(times, us, color='xkcd:orange', label='With feedback')
+        ax.plot(times, np.hstack((u_g.value, np.zeros(n_points))), color='xkcd:azure', label='Theory')
         ax.set(xlabel='time', ylabel='u(t)')
         ax.legend()
+
+        ax = axs[2, 2]
+        ax.plot(times, norms)
+        ax.set(xlabel='time', ylabel='norm of feedback vector')
 
         plt.show()
 
@@ -242,15 +257,18 @@ def main():
     n_points = 2000
     tau = time/n_points
 
-    # env = DoublePendulum(tau=tau)
-    # y_u = compute_optimal_control(env, time, n_points, r_u=0.005, r_end=1000, save=True, file="solution_hard.pk")
+    state_init = [0, np.pi, 0, 0, 0, 0]
 
-    with open("solution_hard.pk", 'rb') as fp:
+    # env = DoublePendulum(tau=tau, state_init=state_init)
+    # y_u = compute_optimal_control(env, time, n_points, r_u=0.005, r_end=1000,
+    #                               max_iter=1000, save=True, file="data/test_3.pk")
+
+    with open("data/solution_pi_zero.pk", 'rb') as fp:
         y_u = pickle.load(fp)
 
-    env = DoublePendulum(tau=tau)
+    env = DoublePendulum(tau=tau, state_init=state_init)
     Q = np.diag([1, 1, 1, 1, 1, 1])
-    simulation(env, y_u, use_feedback=False, only_display=False, Q_fb=Q, r_fb=1000, plot_values=True)
+    simulation(env, y_u, use_feedback=True, only_display=False, Q_fb=Q, r_fb=1, plot_values=True)
 
 
 if __name__ == '__main__':

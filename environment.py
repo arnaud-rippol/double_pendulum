@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class DoublePendulum(gym.Env):
 
-    def __init__(self, display=None, max_iter=10000, tau=0.02):
+    def __init__(self, display=None, max_iter=10000, tau=0.02, state_init=[0, np.pi, np.pi, 0, 0, 0]):
         self.g = 9.8  # gravity constant
         self.m = 50  # mass of cart
         self.m1 = 0.001  # mass of sphere 1
@@ -24,6 +24,7 @@ class DoublePendulum(gym.Env):
         self.counter = 0  # used to stop the simulation
 
         self.x_threshold = 15
+        self.state_init = state_init
 
         self._reset()
         self.viewer = None
@@ -82,9 +83,7 @@ class DoublePendulum(gym.Env):
 
     def get_feedback_matrices(self, theo_state, u):
         """
-        Returns the function that gives the derivate of the state. This is
-        necessary to don't pass the parameters of the system as parameters
-        of the function, which must have a given signature for the solver.
+        Returns the matrices that will be used to compute the State-Dependent Riccati Equation (SDRE) control.
         """
 
         m = self.m
@@ -152,7 +151,7 @@ class DoublePendulum(gym.Env):
                           0,
                           2 * l1 * l2 * m2 * w1 * np.sin(theta1 - theta2)])
 
-        dG_w2 = np.array([2 * m2 * l2 * w2 * np.sin(w2),
+        dG_w2 = np.array([2 * m2 * l2 * w2 * np.sin(w2) + m2 * l2 * w2**2 * np.cos(w2),
                           -2 * l1 * l2 * m2 * w2 * np.sin(theta1 - theta2),
                           0])
 
@@ -220,7 +219,7 @@ class DoublePendulum(gym.Env):
         return self.state, reward, done, {}
 
     def _reset(self):
-        self.state = np.array([0, -np.pi, -np.pi, 0, 0, 0])
+        self.state = self.state_init
         self.counter = 0
         return self.state
 
